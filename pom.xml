@@ -47,7 +47,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <optional>true</optional>
+            <version>1.18.42</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -112,7 +112,15 @@
             <artifactId>commons-io</artifactId>
             <version>2.21.0</version>
         </dependency>
-<!--        <dependency>-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+        <!--        <dependency>-->
 <!--            <groupId>com.h2database</groupId>-->
 <!--            <artifactId>h2</artifactId>-->
 <!--            <scope>runtime</scope>-->
@@ -132,6 +140,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
+                            <version>1.18.42</version>
                         </path>
                         <path>
                             <groupId>org.mapstruct</groupId>
