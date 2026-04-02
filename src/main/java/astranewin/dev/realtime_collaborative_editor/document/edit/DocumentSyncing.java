@@ -2,23 +2,41 @@ package astranewin.dev.realtime_collaborative_editor.document.edit;
 
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.Operation;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncMessage;
+import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.TextMessage;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
 @Component
 public class DocumentSyncing {
-    private final ObjectMapper mapper = new ObjectMapper();
-    // TODO: add fallback if clientVersion is out of range of history
-    public TextMessage sync(List<Operation> history, int clientVersion, int serverVersion) {
-        List<Operation> missed = history.subList(
-                clientVersion,
-                serverVersion
-        );
+    private static final Logger log = LoggerFactory.getLogger(DocumentSyncing.class);
 
-        SyncMessage sync = new SyncMessage(missed, serverVersion);
-        return new TextMessage(mapper.writeValueAsString(sync));
+    public SyncMessage sync(List<Operation> history, String content, int clientVersion, int serverVersion) {
+        log.info("Client version is outdated. Syncing...");
+
+        boolean outDated = clientVersion < serverVersion;
+        if (!outDated) return null;
+
+        SyncMessage sync = new SyncMessage();
+        sync.setVersion(serverVersion);
+
+        boolean outOfBounds = clientVersion < serverVersion - history.size();
+        SyncType type = outOfBounds ? SyncType.FULL : SyncType.SOFT;
+        sync.setType(type);
+
+        if (type.equals(SyncType.SOFT)) {
+            sync.setOperations(
+                    history.subList(
+                            clientVersion,
+                            serverVersion
+                    )
+            );
+        } else {
+            sync.setContent(content);
+        }
+
+        return sync;
     }
 }

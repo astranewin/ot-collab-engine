@@ -18,9 +18,7 @@ public class DocumentEntity {
     private Long id;
 
     private String name;
-    @Lob
-    @Column(name = "content")
-    @Basic(fetch = FetchType.LAZY)
+    @Column(columnDefinition = "TEXT", name = "content")
     private String content = "";
 
 //    private UserEntity author;

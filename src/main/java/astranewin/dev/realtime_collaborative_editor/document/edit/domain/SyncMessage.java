@@ -1,23 +1,19 @@
 package astranewin.dev.realtime_collaborative_editor.document.edit.domain;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 import java.util.List;
 
+@AllArgsConstructor
 @NoArgsConstructor
 @Getter
+@Builder
 @Setter
 public class SyncMessage {
-    private String type = "sync";
+    SyncType type;
     List<Operation> operations;
+    String content;
     int version;
-
-    public SyncMessage(List<Operation> operations, int version) {
-        this.operations = operations;
-        this.version = version;
-    }
 
     @Override
     public String toString() {
