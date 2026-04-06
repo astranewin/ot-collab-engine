@@ -2,6 +2,7 @@ package astranewin.dev.realtime_collaborative_editor.document.edit;
 
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.DocumentState;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.Operation;
+import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncMessage;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncType;
 import astranewin.dev.realtime_collaborative_editor.document.edit.dto.DocumentHandleOperationResponse;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,17 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final DocumentOperationService documentOperationService;
+
+    // Force every session to sync with a new msg
+    public void forceSyncAll(String docId, SyncMessage message) throws IOException {
+        String msg = mapper.writeValueAsString(message);
+        log.info(msg);
+        for (WebSocketSession s : docSessions.getOrDefault(docId, Set.of())) {
+            if (s.isOpen()) {
+                s.sendMessage(new TextMessage(msg));
+            }
+        }
+    }
 
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) throws Exception {

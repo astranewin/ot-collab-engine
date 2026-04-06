@@ -2,16 +2,23 @@ package astranewin.dev.realtime_collaborative_editor.document.edit;
 
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.Operation;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.OperationType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
 public class OperationTransformer {
-    public Operation transformAgainst(List<Operation> history, int version, Operation op) {
+    private static final Logger log = LoggerFactory.getLogger(OperationTransformer.class);
+
+    public Operation transformAgainst(List<Operation> history, int version, Operation op, int historyOffset) {
+        log.info("History size: {}, op.version: {}, version: {}", history.size(), op.getVersion(), version);
+
+        if (history.isEmpty()) return op;
         List<Operation> missed = history.subList(
-                op.getVersion(),
-                version
+                op.getVersion() - historyOffset,
+                history.size()
         );
 
         for (Operation prevOp : missed) {

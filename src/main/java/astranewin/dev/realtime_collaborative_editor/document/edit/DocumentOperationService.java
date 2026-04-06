@@ -4,6 +4,7 @@ import astranewin.dev.realtime_collaborative_editor.common.exceptions.NotFoundEx
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.*;
 import astranewin.dev.realtime_collaborative_editor.document.edit.dto.DocumentHandleOperationResponse;
 import astranewin.dev.realtime_collaborative_editor.document.entity.DocumentRepository;
+import astranewin.dev.realtime_collaborative_editor.document.snapshot.DocumentSnapshotService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -27,6 +30,7 @@ public class DocumentOperationService {
     private final OperationTransformer operationTransformer;
     private final DocumentSyncing documentSyncing;
     private final TransactionTemplate transactionTemplate;
+    private final DocumentSnapshotService documentSnapshotService;
 
     public DocumentState initDocument(String docId) {
         if (!repository.existsById(Long.valueOf((docId)))) {
@@ -44,28 +48,25 @@ public class DocumentOperationService {
         DocumentState doc = documents.get(docId);
         DocumentHandleOperationResponse response = new DocumentHandleOperationResponse();
 
-        List<Operation> history = doc.getHistory();
-
         SyncMessage sync = documentSyncing
-                .sync(doc.getHistory(), doc.getContent(), op.getVersion(), doc.getVersion());
+                .sync(doc.getHistory(), doc.getContent(), op.getVersion(), doc.getVersion(), doc.getHistoryOffset());
         response.setSyncMessage(sync);
-        if (sync.getType().equals(SyncType.FULL)) return response;
+        if (sync != null && sync.getType().equals(SyncType.FULL)) return response;
 
-        Operation updated = operationTransformer.transformAgainst(history, doc.getVersion(), op);
+        Operation updated = processOperation(doc, op);
 
-        doc.setContent(apply(doc.getContent(), updated));
-
-        doc.getHistory().add(updated);
-
-        int newVersion = doc.getVersion() + 1;
-
-        doc.setVersion(newVersion);
-        updated.setVersion(newVersion);
         response.setOp(updated);
-
         doc.setDirty(true);
 
-        if (doc.getHistory().size() > 100) doc.getHistory().removeFirst();
+        if (doc.getHistory().size() > 50) {
+            log.info("History is too long. Clearing...");
+            int removeCount = doc.getHistory().size() - 50;
+            doc.getHistory().subList(0, removeCount).clear();
+            doc.setHistoryOffset(doc.getHistoryOffset() + removeCount);
+
+            documentSnapshotService.initSnapshot(Long.valueOf(docId), doc.getLastSnapshot(), doc.getContent());
+            doc.setLastSnapshot(LocalDateTime.now());
+        }
 
         if (doc.getFlushTask() != null && !doc.getFlushTask().isDone()) {
             doc.getFlushTask().cancel(false);
@@ -81,6 +82,30 @@ public class DocumentOperationService {
         doc.setFlushTask(schedule);
 
         return response;
+    }
+
+    public void updateDocument(String  docId, String content) {
+        repository.updateContent(Long.valueOf(docId), content);
+
+        DocumentState doc = documents.get(docId);
+        if (doc == null) return;
+
+        log.info("Updating document with the new data");
+        doc.setContent(content);
+        doc.getHistory().clear();
+        doc.setVersion(0);
+    }
+
+    private Operation processOperation(DocumentState doc, Operation op) {
+        int newVersion = doc.getVersion() + 1;
+
+        List<Operation> history = doc.getHistory();
+        Operation updated = operationTransformer.transformAgainst(history, doc.getVersion(), op, doc.getHistoryOffset());
+        doc.setContent(apply(doc.getContent(), updated));
+        doc.getHistory().add(updated);
+        doc.setVersion(newVersion);
+        updated.setVersion(newVersion);
+        return updated;
     }
 
     protected String getContentFromDB(Long docId) {

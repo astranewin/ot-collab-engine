@@ -1,7 +1,6 @@
 package astranewin.dev.realtime_collaborative_editor.document.edit.dto;
 
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.Operation;
-import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncFullMessage;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncMessage;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -15,5 +14,4 @@ import lombok.Setter;
 public class DocumentHandleOperationResponse{
     private Operation op;
     private SyncMessage syncMessage;
-    private SyncFullMessage syncFullMessage;
 }

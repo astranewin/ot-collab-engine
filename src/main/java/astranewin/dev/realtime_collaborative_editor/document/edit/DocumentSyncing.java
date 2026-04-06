@@ -13,16 +13,16 @@ import java.util.List;
 public class DocumentSyncing {
     private static final Logger log = LoggerFactory.getLogger(DocumentSyncing.class);
 
-    public SyncMessage sync(List<Operation> history, String content, int clientVersion, int serverVersion) {
-        log.info("Client version is outdated. Syncing...");
-
+    public SyncMessage sync(List<Operation> history, String content, int clientVersion, int serverVersion, int historyOffset) {
         boolean outDated = clientVersion < serverVersion;
         if (!outDated) return null;
+
+        log.info("Client version is outdated. Syncing...");
 
         SyncMessage sync = new SyncMessage();
         sync.setVersion(serverVersion);
 
-        boolean outOfBounds = clientVersion < serverVersion - history.size();
+        boolean outOfBounds = clientVersion < historyOffset;
         SyncType type = outOfBounds ? SyncType.FULL : SyncType.SOFT;
         sync.setType(type);
 
@@ -38,5 +38,14 @@ public class DocumentSyncing {
         }
 
         return sync;
+    }
+
+    public SyncMessage forceSync(String content, int serverVersion) {
+        log.info("Force sync...");
+        return SyncMessage.builder()
+                .version(serverVersion)
+                .type(SyncType.FULL)
+                .content(content)
+                .build();
     }
 }

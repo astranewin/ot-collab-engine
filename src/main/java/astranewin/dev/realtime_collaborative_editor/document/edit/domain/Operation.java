@@ -18,10 +18,12 @@ public class Operation {
 
     @Override
     public String toString() {
-        return "WebSocketOperation{" +
-                "type='" + type + '\'' +
+        return "Operation{" +
+                "type=" + type +
                 ", position=" + position +
                 ", text='" + text + '\'' +
+                ", version=" + version +
+                ", length=" + length +
                 '}';
     }
 }
