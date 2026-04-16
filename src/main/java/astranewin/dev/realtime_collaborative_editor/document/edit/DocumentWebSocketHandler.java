@@ -1,5 +1,6 @@
 package astranewin.dev.realtime_collaborative_editor.document.edit;
 
+import astranewin.dev.realtime_collaborative_editor.document.access.AccessService;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.DocumentState;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.Operation;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncMessage;
@@ -34,6 +35,7 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final DocumentOperationService documentOperationService;
+    private final AccessService accessService;
 
     // Force every session to sync with a new msg
     public void forceSyncAll(String docId, SyncMessage message) throws IOException {
@@ -46,6 +48,10 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    public void closeConnectionToUser() {
+
+    }
+
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) throws Exception {
         String docId = getDocId(session);
@@ -54,6 +60,8 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
                 .add(session);
 
         DocumentState doc = documentOperationService.initDocument(docId);
+
+        log.info("Document content: {}", doc.getContent());
 
         String payload = mapper.writeValueAsString(Map.of(
                 "type", "init",
@@ -70,7 +78,15 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
             @NonNull WebSocketSession session,
             @NonNull WebSocketMessage<?> message
     ) throws Exception {
+        String wsToken = (String) session.getAttributes().get("wsToken");
+        log.info("wsToken: {}", wsToken);
         String docId = getDocId(session);
+        boolean canEdit = accessService.canEdit(wsToken);
+        if (!canEdit) {
+            session.sendMessage(new TextMessage("{\"error\": \"No access to edit content\"}"));
+            return;
+        }
+
 
         try {
             Operation op = mapper.readValue(message.getPayload().toString(), Operation.class);
