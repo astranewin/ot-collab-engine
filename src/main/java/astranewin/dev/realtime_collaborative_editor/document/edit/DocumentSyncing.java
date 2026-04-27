@@ -14,30 +14,23 @@ public class DocumentSyncing {
     private static final Logger log = LoggerFactory.getLogger(DocumentSyncing.class);
 
     public SyncMessage sync(List<Operation> history, String content, int clientVersion, int serverVersion, int historyOffset) {
-        boolean outDated = clientVersion < serverVersion;
-        if (!outDated) return null;
+        if (clientVersion >= serverVersion) return null;
 
         log.info("Client version is outdated. Syncing...");
 
-        SyncMessage sync = new SyncMessage();
-        sync.setVersion(serverVersion);
+        int fromIndex = clientVersion - historyOffset;
+        int toIndex = serverVersion - historyOffset;
 
-        boolean outOfBounds = clientVersion < historyOffset;
-        SyncType type = outOfBounds ? SyncType.FULL : SyncType.SOFT;
-        sync.setType(type);
-
-        if (type.equals(SyncType.SOFT)) {
-            sync.setOperations(
-                    history.subList(
-                            clientVersion,
-                            serverVersion
-                    )
-            );
-        } else {
-            sync.setContent(content);
+        if (fromIndex < 0 || toIndex > history.size() || fromIndex > toIndex) {
+            log.info("Falling back to FULL sync");
+            return forceSync(content, serverVersion);
         }
 
-        return sync;
+        return SyncMessage.builder()
+                .operations(history.subList(fromIndex, toIndex))
+                .version(serverVersion)
+                .type(SyncType.SOFT)
+                .build();
     }
 
     public SyncMessage forceSync(String content, int serverVersion) {

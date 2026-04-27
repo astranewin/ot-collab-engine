@@ -6,6 +6,4 @@ import java.util.Optional;
 
 public interface AccessRepository extends JpaRepository<DocumentAccessEntity, Long> {
     Optional<DocumentAccessEntity> findByDocument_IdAndUser_Id(Long docId, Long userId);
-
-    boolean existsByDocument_IdAndUser_Id(Long documentId, Long userId);
 }

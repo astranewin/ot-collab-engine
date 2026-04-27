@@ -1,9 +1,14 @@
 package astranewin.dev.realtime_collaborative_editor.document.edit;
 
+import astranewin.dev.realtime_collaborative_editor.document.access.AccessType;
 import astranewin.dev.realtime_collaborative_editor.security.JwtService;
+import astranewin.dev.realtime_collaborative_editor.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
 import org.springframework.security.access.AccessDeniedException;
@@ -16,7 +21,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
 import java.util.Map;
-import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
@@ -29,22 +33,34 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
             @NonNull ServerHttpResponse response,
             @NonNull WebSocketHandler wsHandler,
             @NonNull Map<String, Object> attributes
-    ) throws Exception {
+    ) {
         URI uri = request.getURI();
-        String query = uri.getQuery();
 
         MultiValueMap<String, String> params = UriComponentsBuilder.fromUri(uri).build().getQueryParams();
 
         String token = params.getFirst("wsToken");
-        if (token == null) {
-            throw new AccessDeniedException("Access denied");
+        String docId = params.getFirst("docId");
+
+        if (token == null || docId == null) {
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+            return false;
         }
 
-        UserDetails userDetails = jwtService.authWebSocketToken(token);
+        try {
+            String effectiveAccess = jwtService.extractEffective(token);
+            String explicitAccess = jwtService.extractExplicitAccess(token);
+            UserDetails userDetails = jwtService.authWebSocketToken(token);
 
-        attributes.put("wsToken", token);
-        attributes.put("username", userDetails.getUsername());
-        return true;
+            attributes.put("wsToken", token);
+            attributes.put("docId", docId);
+            attributes.put("username", userDetails.getUsername());
+            attributes.put("effectiveAccess", AccessType.valueOf(effectiveAccess));
+            attributes.put("explicitAccess", AccessType.valueOf(explicitAccess));
+            return true;
+        } catch (IllegalArgumentException e) {
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+            return false;
+        }
     }
 
     @Override

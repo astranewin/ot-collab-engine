@@ -1,17 +1,18 @@
 package astranewin.dev.realtime_collaborative_editor.document.access;
 
+import astranewin.dev.realtime_collaborative_editor.common.exceptions.DuplicateAccessException;
+import astranewin.dev.realtime_collaborative_editor.common.exceptions.InsufficientPermissionsException;
 import astranewin.dev.realtime_collaborative_editor.common.exceptions.NotFoundException;
 import astranewin.dev.realtime_collaborative_editor.document.DocumentAccessPolicy;
 import astranewin.dev.realtime_collaborative_editor.document.access.dto.AccessResponse;
+import astranewin.dev.realtime_collaborative_editor.document.access.dto.HasAccessToDocumentResponse;
 import astranewin.dev.realtime_collaborative_editor.document.access.dto.UpdateAccessRequest;
+import astranewin.dev.realtime_collaborative_editor.document.edit.DocumentWebSocketHandler;
 import astranewin.dev.realtime_collaborative_editor.document.entity.DocumentEntity;
 import astranewin.dev.realtime_collaborative_editor.document.entity.DocumentRepository;
-import astranewin.dev.realtime_collaborative_editor.security.JwtService;
 import astranewin.dev.realtime_collaborative_editor.user.UserEntity;
 import astranewin.dev.realtime_collaborative_editor.user.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,56 +20,36 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AccessService {
-    private static final Logger log = LoggerFactory.getLogger(AccessService.class);
     private final DocumentRepository documentRepository;
     private final AccessRepository repository;
     private final UserRepository userRepository;
     private final AccessMapping mapping;
-    private final JwtService jwtService;
+    private final DocumentWebSocketHandler documentWebSocketHandler;
 
-    public AccessType hasAccessToDocument(Long docId, UserEntity userEntity) {
+    @Transactional(readOnly = true)
+    public HasAccessToDocumentResponse hasAccessToDocument(Long docId, UserEntity userEntity) {
         DocumentEntity documentEntity = documentRepository.findById(docId)
                 .orElseThrow(() -> new NotFoundException("Document not found"));
 
-        AccessType grantedAccess = repository.findByDocument_IdAndUser_Id(docId, userEntity.getId())
-                .map(DocumentAccessEntity::getAccess)
-                .orElse(AccessType.NONE);
+        AccessType explicit = getExplicitAccess(docId, userEntity.getId());
+        AccessType effective = calculateEffectiveAccess(explicit, documentEntity.getAccessPolicy());
 
-        DocumentAccessPolicy docAccessPolicy = documentEntity.getAccessPolicy();
-
-        if (docAccessPolicy.equals(DocumentAccessPolicy.PUBLIC_EDIT)) {
-            return AccessType.WRITE;
-        }
-
-        if (docAccessPolicy.equals(DocumentAccessPolicy.PUBLIC_READ)) {
-            return (grantedAccess == AccessType.WRITE) ? AccessType.WRITE :  AccessType.READ;
-        }
-
-        return grantedAccess;
-    }
-
-    public boolean canEdit(String wsToken) {
-        AccessType access = AccessType.valueOf(jwtService.extractAccess(wsToken));
-
-        return !access.equals(AccessType.READ);
+        return new HasAccessToDocumentResponse(effective, explicit);
     }
 
     @Transactional
-    public AccessResponse setAccess(DocumentEntity documentEntity, UserEntity userEntity, AccessType accessType) {
+    public void setAccess(DocumentEntity documentEntity, UserEntity userEntity, AccessType accessType) {
         DocumentAccessEntity accessEntity = repository.findByDocument_IdAndUser_Id(documentEntity.getId(), userEntity.getId())
                 .orElse( DocumentAccessEntity.builder().document(documentEntity).user(userEntity).build() );
 
         accessEntity.setAccess(accessType);
-
-        DocumentAccessEntity save = repository.save(accessEntity);
-
-        return mapping.toAccessResponse(save);
+        repository.save(accessEntity);
     }
 
     @Transactional
     public AccessResponse updateAccess(UserEntity grantorEntity, Long docId, UpdateAccessRequest request) {
         Long granteeId = request.userId();
-        AccessType accessType = request.accessType();
+        AccessType requestedAccessType = request.accessType();
 
         DocumentEntity documentEntity = documentRepository.findById(docId)
                 .orElseThrow(() -> new NotFoundException("Document not found"));
@@ -87,30 +68,57 @@ public class AccessService {
                         .build()
                 );
 
-        boolean hasAccess = hasAccessToPerformAction(
-                grantorAccessEntity.getAccess(), granteeAccessEntity.getAccess(), accessType
-        );
+        if (!hasAccessToPerformAction(grantorAccessEntity.getAccess(), granteeAccessEntity.getAccess(), requestedAccessType))
+            throw new InsufficientPermissionsException("You don't have permissions to change access");
 
-        if (!hasAccess)
-            throw new AccessDeniedException("Access denied");
+        if (requestedAccessType == granteeAccessEntity.getAccess())
+            throw new DuplicateAccessException("User already has this access type");
 
-        if (accessType.equals(granteeAccessEntity.getAccess()))
-            throw new IllegalStateException("Duplicate access type");
 
-        granteeAccessEntity.setAccess(accessType);
-
+        granteeAccessEntity.setAccess(requestedAccessType);
         DocumentAccessEntity save = repository.save(granteeAccessEntity);
+
+        documentWebSocketHandler.updateEffectiveAccessInSession(
+                granteeEntity.getUsername(),
+                requestedAccessType,
+                documentEntity.getAccessPolicy()
+        );
 
         return mapping.toAccessResponse(save);
     }
 
-    private boolean hasAccessToPerformAction(AccessType grantorAccess, AccessType granteeAccess, AccessType calledType) {
-        if (granteeAccess.equals(AccessType.OWNER) || calledType.equals(AccessType.OWNER)) return false;
+    @Transactional(readOnly = true)
+    public boolean hasAccessToManage(Long userId, Long docId) {
+        AccessType grantedAccess = getExplicitAccess(docId, userId);
+        return grantedAccess.isManageAccess();
+    }
 
-        if (calledType.equals(AccessType.MANAGE) && !grantorAccess.equals(AccessType.OWNER)) return false;
-        if (granteeAccess.equals(AccessType.MANAGE) && grantorAccess.equals(AccessType.MANAGE)) return false;
+    private AccessType calculateEffectiveAccess(AccessType explicit, DocumentAccessPolicy policy) {
+        if (explicit.isManageAccess()) return explicit;
 
-        // Add check for availability to change access on document by the readers/editors
+        if (policy == DocumentAccessPolicy.PUBLIC_EDIT) {
+            return AccessType.WRITE;
+        }
+
+        if (policy == DocumentAccessPolicy.PUBLIC_READ) {
+            return (explicit == AccessType.WRITE) ? AccessType.WRITE : AccessType.READ;
+        }
+
+        return explicit;
+    }
+
+    private AccessType getExplicitAccess(Long docId, Long userEntity) {
+        return repository.findByDocument_IdAndUser_Id(docId, userEntity)
+                .map(DocumentAccessEntity::getAccess)
+                .orElse(AccessType.NONE);
+    }
+
+    private boolean hasAccessToPerformAction(AccessType grantorAccess, AccessType granteeAccess, AccessType targetType) {
+        if (granteeAccess == AccessType.OWNER || targetType == AccessType.OWNER) return false;
+        if (grantorAccess != AccessType.OWNER && grantorAccess != AccessType.MANAGE) return false;
+
+        if (targetType == AccessType.MANAGE && grantorAccess != AccessType.OWNER) return false;
+        if (granteeAccess == AccessType.MANAGE && grantorAccess == AccessType.MANAGE) return false;
 
         return true;
     }

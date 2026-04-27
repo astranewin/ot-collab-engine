@@ -63,9 +63,6 @@ public class AuthenticationController {
             @PathVariable Long docId,
             @AuthenticationPrincipal UserDetailsImpl userDetails
     ) {
-        System.out.println(userDetails.getUsername());
         return service.webSocketAuth(userDetails, docId);
     }
-
-    // localhost:8080/real-time_collaborative_editor/swagger-ui.html
 }

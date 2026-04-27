@@ -1,10 +1,12 @@
 package astranewin.dev.realtime_collaborative_editor.document.dto;
 
 import astranewin.dev.realtime_collaborative_editor.document.DocumentAccessPolicy;
+import jakarta.annotation.Nullable;
 
-public record DocumentResponse(
-        Long id,
+public record UpdateDocumentRequest(
+        @Nullable
         String name,
-        DocumentAccessPolicy accessPolicy
+        @Nullable
+        DocumentAccessPolicy access
 ) {
 }

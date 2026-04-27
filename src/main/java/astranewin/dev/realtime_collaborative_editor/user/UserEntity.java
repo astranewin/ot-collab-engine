@@ -11,7 +11,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-@Table(name = "users")
+@Table(name = "users", indexes = {
+        @Index(name = "idx_users_username", columnList = "username", unique = true)
+})
 public class UserEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

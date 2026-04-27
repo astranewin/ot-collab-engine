@@ -1,11 +1,13 @@
 package astranewin.dev.realtime_collaborative_editor.document.edit;
 
-import astranewin.dev.realtime_collaborative_editor.document.access.AccessService;
+import astranewin.dev.realtime_collaborative_editor.document.DocumentAccessPolicy;
+import astranewin.dev.realtime_collaborative_editor.document.access.AccessType;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.DocumentState;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.Operation;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncMessage;
 import astranewin.dev.realtime_collaborative_editor.document.edit.domain.SyncType;
 import astranewin.dev.realtime_collaborative_editor.document.edit.dto.DocumentHandleOperationResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -16,12 +18,9 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.util.UriComponentsBuilder;
-import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -30,46 +29,40 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DocumentWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(DocumentWebSocketHandler.class);
 
+    // That tracking works only with single-server setup.
+    // 'Load balancing' might store data in different servers. Perhaps, Redis Pub/Sub might help
+    // For the sake of not overwhelming the system, I decided to skip Redis part for now.
+
+    // Document tracking/broadcast. DocId -> Session
     private final Map<String, Set<WebSocketSession>> docSessions = new ConcurrentHashMap<>();
+    // Management map to work with a specific sessions by their username. Username -> Sessions
+    private final Map<String, Set<WebSocketSession>> userSessions = new ConcurrentHashMap<>();
+
     private final jakarta.validation.Validator validator;
     private final ObjectMapper mapper = new ObjectMapper();
-
     private final DocumentOperationService documentOperationService;
-    private final AccessService accessService;
-
-    // Force every session to sync with a new msg
-    public void forceSyncAll(String docId, SyncMessage message) throws IOException {
-        String msg = mapper.writeValueAsString(message);
-        log.info(msg);
-        for (WebSocketSession s : docSessions.getOrDefault(docId, Set.of())) {
-            if (s.isOpen()) {
-                s.sendMessage(new TextMessage(msg));
-            }
-        }
-    }
-
-    public void closeConnectionToUser() {
-
-    }
 
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) throws Exception {
-        String docId = getDocId(session);
+        String docId = (String) session.getAttributes().get("docId");
+        String username = (String) session.getAttributes().get("username");
 
-        docSessions.computeIfAbsent(docId, x -> ConcurrentHashMap.newKeySet())
-                .add(session);
+        if (username == null || docId == null) {
+            session.close(CloseStatus.SERVER_ERROR);
+            return;
+        }
+
+        docSessions.computeIfAbsent(docId, x -> ConcurrentHashMap.newKeySet()).add(session);
+        userSessions.computeIfAbsent(username, x -> ConcurrentHashMap.newKeySet()).add(session);
 
         DocumentState doc = documentOperationService.initDocument(docId);
-
-        log.info("Document content: {}", doc.getContent());
 
         String payload = mapper.writeValueAsString(Map.of(
                 "type", "init",
                 "content", doc.getContent(),
                 "version", doc.getVersion()
         ));
-        session.sendMessage(new TextMessage(payload));
-
+        sendMessageSafe(session, new TextMessage(payload));
         log.info("Connected. ID: {} | Doc: {}", session.getId(), docId);
     }
 
@@ -78,15 +71,13 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
             @NonNull WebSocketSession session,
             @NonNull WebSocketMessage<?> message
     ) throws Exception {
-        String wsToken = (String) session.getAttributes().get("wsToken");
-        log.info("wsToken: {}", wsToken);
-        String docId = getDocId(session);
-        boolean canEdit = accessService.canEdit(wsToken);
-        if (!canEdit) {
-            session.sendMessage(new TextMessage("{\"error\": \"No access to edit content\"}"));
+        AccessType effectiveAccess = (AccessType) session.getAttributes().get("effectiveAccess");
+        String docId = (String) session.getAttributes().get("docId");
+
+        if (effectiveAccess == AccessType.NONE || effectiveAccess == AccessType.READ) {
+            sendMessageSafe(session, new TextMessage("{\"error\": \"No access to edit content\"}"));
             return;
         }
-
 
         try {
             Operation op = mapper.readValue(message.getPayload().toString(), Operation.class);
@@ -94,34 +85,21 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
             var violations = validator.validate(op);
             if (!violations.isEmpty()) {
                 String errorMsg = violations.iterator().next().getMessage();
-                log.error("Validation failed for session: {}. Error: {}", session.getId(), errorMsg);
-                session.sendMessage(new TextMessage("{\"error\": \"" + errorMsg + "\"}"));
+                sendMessageSafe(session, new TextMessage("{\"error\": \"" + errorMsg + "\"}"));
                 return;
             }
 
-            log.info("Received op: {}", op);
-
             DocumentHandleOperationResponse response = documentOperationService.handle(docId, op);
+
             if (response.getSyncMessage() != null) {
-                TextMessage textMessage = new TextMessage(mapper.writeValueAsString(response.getSyncMessage()));
-                session.sendMessage(textMessage);
+                sendMessageSafe(session, new TextMessage(mapper.writeValueAsString(response.getSyncMessage())));
                 if (response.getSyncMessage().getType().equals(SyncType.FULL)) return;
             }
 
-            String msg = mapper.writeValueAsString(response.getOp());
-
-            broadcast(docId, session, msg);
+            broadcast(docId, session, mapper.writeValueAsString(response.getOp()));
         } catch (Exception e) {
             log.error("Failed to initialize message:", e);
-            session.sendMessage(new TextMessage("{\"error\": \"Invalid JSON format\"}"));
-        }
-    }
-
-    private void broadcast(String docId, WebSocketSession sender, String msg) throws IOException {
-        for (WebSocketSession s : docSessions.getOrDefault(docId, Set.of())) {
-            if (s.isOpen() && !s.getId().equals(sender.getId())) {
-                s.sendMessage(new TextMessage(msg));
-            }
+            sendMessageSafe(session, new TextMessage("{\"error\": \"Invalid JSON format\"}"));
         }
     }
 
@@ -130,21 +108,108 @@ public class DocumentWebSocketHandler extends TextWebSocketHandler {
             @NonNull WebSocketSession session,
             @NonNull CloseStatus closeStatus
     ) {
-        String docId = getDocId(session);
-        Set<WebSocketSession> sessions = docSessions.get(docId);
+        String docId = (String) session.getAttributes().get("docId");
+        String username = (String) session.getAttributes().get("username");
 
-        if (!sessions.isEmpty()) {
-            sessions.remove(session);
+        if (docId != null) {
+            Set<WebSocketSession> sessions = docSessions.get(docId);
+            if (sessions != null) {
+                sessions.remove(session);
+                if (sessions.isEmpty()) docSessions.remove(docId);
+            }
+        }
+
+        if (username != null) {
+            Set<WebSocketSession> sessions = userSessions.get(username);
+            if (sessions != null) {
+                sessions.remove(session);
+                if (sessions.isEmpty()) userSessions.remove(username);
+            }
         }
 
         log.info("Disconnected. ID: {} | Doc: {}", session.getId(), docId);
     }
 
-    private String getDocId(WebSocketSession session) {
-        return UriComponentsBuilder.fromUri(Objects.requireNonNull(session.getUri()))
-                .build()
-                .getQueryParams()
-                .getFirst("docId");
+    public void forceSyncAll(String docId, SyncMessage message) throws IOException {
+        String msg = mapper.writeValueAsString(message);
+        broadcastToAll(docId, msg);
+    }
+
+    public void updateEffectiveAccessInSession(String username, AccessType access, DocumentAccessPolicy documentAccessPolicy) {
+        Set<WebSocketSession> sessions = userSessions.get(username);
+        if (sessions == null || sessions.isEmpty()) return;
+
+        AccessType newAccess = access == AccessType.NONE ? documentAccessPolicy.toAccessType() : access;
+
+        for (WebSocketSession session : sessions) {
+            try {
+                if (newAccess == AccessType.NONE) {
+                    session.close(CloseStatus.POLICY_VIOLATION);
+                    continue;
+                }
+
+                session.getAttributes().put("effectiveAccess", newAccess);
+                session.getAttributes().put("explicitAccess", access);
+                sendMessageSafe(session, new TextMessage("{\"type\": \"ACCESS_UPDATE\", \"level\": \"" + access + "\"}"));
+            } catch (IOException e) {
+                log.error("Error updating effective access for user {}", username);
+            }
+        }
+    }
+
+    public void updateEffectiveAccess(String docId, AccessType policyFloor) {
+        Set<WebSocketSession> sessions = docSessions.get(docId);
+        if (sessions == null) return;
+
+        for (WebSocketSession session : docSessions.getOrDefault(docId, Set.of())) {
+            AccessType explicitAccess = (AccessType) session.getAttributes().get("explicitAccess");
+            AccessType effectiveAccess = (AccessType) session.getAttributes().get("effectiveAccess");
+
+            if (explicitAccess.ordinal() <= policyFloor.ordinal() && !effectiveAccess.equals(policyFloor)) {
+                try {
+                    if (policyFloor == AccessType.NONE) {
+                        session.close(CloseStatus.POLICY_VIOLATION);
+                        continue;
+                    }
+
+                    session.getAttributes().put("effectiveAccess", policyFloor);
+                    sendMessageSafe(session, new TextMessage("{\"type\": \"ACCESS_UPDATE\", \"level\": \"" + policyFloor + "\"}"));
+                } catch (IOException e) {
+                    log.error("Error updating session for user {}", session.getAttributes().get("username"));
+                }
+            }
+        }
+    }
+
+    private void broadcastToAll(String docId, String message) throws IOException {
+        Set<WebSocketSession> sessions = docSessions.get(docId);
+        if (sessions == null) return;
+
+        TextMessage textMessage = new TextMessage(message);
+        for (WebSocketSession session : sessions) {
+            if (session.isOpen()) {
+                sendMessageSafe(session, textMessage);
+            }
+        }
+    }
+
+    private void broadcast(String docId, WebSocketSession sender, String msg) throws IOException {
+        Set<WebSocketSession> sessions = docSessions.get(docId);
+        if (sessions == null) return;
+
+        for (WebSocketSession session : sessions) {
+            if (session.isOpen() && !session.getId().equals(sender.getId())) {
+                sendMessageSafe(session, new TextMessage(msg));
+            }
+        }
+    }
+
+    private void sendMessageSafe(WebSocketSession session, TextMessage textMessage) throws IOException {
+        if (session.isOpen()) {
+            synchronized (session) {
+                session.sendMessage(textMessage);
+            }
+        }
     }
 
     @Override

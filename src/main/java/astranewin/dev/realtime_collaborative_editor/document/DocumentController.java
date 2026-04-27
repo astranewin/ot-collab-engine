@@ -2,7 +2,7 @@ package astranewin.dev.realtime_collaborative_editor.document;
 
 import astranewin.dev.realtime_collaborative_editor.document.dto.DocumentRequest;
 import astranewin.dev.realtime_collaborative_editor.document.dto.DocumentResponse;
-import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.SnapshotListResponse;
+import astranewin.dev.realtime_collaborative_editor.document.dto.UpdateDocumentRequest;
 import astranewin.dev.realtime_collaborative_editor.user.UserDetailsImpl;
 import astranewin.dev.realtime_collaborative_editor.user.UserEntity;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -13,7 +13,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
-import java.util.List;
 
 @SecurityRequirement(name = "bearerAuth")
 
@@ -35,9 +34,19 @@ public class DocumentController {
     @PatchMapping("/{docId}/revert/{snapshotId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void revertChangesBySnapshot(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable Long docId,
             @PathVariable Long snapshotId
     ) throws IOException {
-        service.revertChanges(docId, snapshotId);
+        service.revertChanges(userDetails, docId, snapshotId);
+    }
+
+    @PatchMapping("/{docId}")
+    public DocumentResponse edit(
+            @RequestBody @Valid UpdateDocumentRequest request,
+            @PathVariable Long docId,
+            @AuthenticationPrincipal UserDetailsImpl userDetails
+    ) {
+        return service.edit(request, userDetails.getUserEntity(), docId);
     }
 }

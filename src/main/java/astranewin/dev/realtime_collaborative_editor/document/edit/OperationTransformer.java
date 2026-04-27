@@ -10,11 +10,7 @@ import java.util.List;
 
 @Component
 public class OperationTransformer {
-    private static final Logger log = LoggerFactory.getLogger(OperationTransformer.class);
-
-    public Operation transformAgainst(List<Operation> history, int version, Operation op, int historyOffset) {
-        log.info("History size: {}, op.version: {}, version: {}", history.size(), op.getVersion(), version);
-
+    public Operation transformAgainst(List<Operation> history,Operation op, int historyOffset) {
         if (history.isEmpty()) return op;
         List<Operation> missed = history.subList(
                 op.getVersion() - historyOffset,
@@ -62,7 +58,6 @@ public class OperationTransformer {
             a.setPosition(a.getPosition() + b.getText().length());
         }
 
-        a.setPosition(a.getPosition() + b.getText().length());
         return a;
     }
 

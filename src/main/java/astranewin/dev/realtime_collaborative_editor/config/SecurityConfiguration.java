@@ -6,6 +6,7 @@ import astranewin.dev.realtime_collaborative_editor.user.UserDetailsImpl;
 import astranewin.dev.realtime_collaborative_editor.user.UserEntity;
 import astranewin.dev.realtime_collaborative_editor.user.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -16,16 +17,25 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 @Configuration
 @EnableWebSecurity
-@RequiredArgsConstructor
 public class SecurityConfiguration {
+    private final HandlerExceptionResolver handlerExceptionResolver;
+
+    public SecurityConfiguration(
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver
+    ) {
+        this.handlerExceptionResolver = handlerExceptionResolver;
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
@@ -45,6 +55,12 @@ public class SecurityConfiguration {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(((request, response, authException) ->
+                                handlerExceptionResolver.resolveException(request, response, null, authException)))
+                        .accessDeniedHandler(((request, response, accessDeniedException) ->
+                                handlerExceptionResolver.resolveException(request, response, null, accessDeniedException)))
+                )
                 .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -55,7 +71,7 @@ public class SecurityConfiguration {
     public UserDetailsService userDetailsService(UserRepository userRepository) {
         return username -> {
             UserEntity userEntity = userRepository.findByUsername(username)
-                    .orElseThrow(() -> new NotFoundException("User not found"));
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
             return new UserDetailsImpl(userEntity);
         };

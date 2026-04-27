@@ -2,9 +2,12 @@ package astranewin.dev.realtime_collaborative_editor.auth;
 
 import astranewin.dev.realtime_collaborative_editor.auth.dto.*;
 import astranewin.dev.realtime_collaborative_editor.auth.token.RefreshTokenService;
+import astranewin.dev.realtime_collaborative_editor.common.exceptions.DuplicateResourceException;
+import astranewin.dev.realtime_collaborative_editor.common.exceptions.InsufficientPermissionsException;
 import astranewin.dev.realtime_collaborative_editor.common.exceptions.NotFoundException;
 import astranewin.dev.realtime_collaborative_editor.document.access.AccessService;
 import astranewin.dev.realtime_collaborative_editor.document.access.AccessType;
+import astranewin.dev.realtime_collaborative_editor.document.access.dto.HasAccessToDocumentResponse;
 import astranewin.dev.realtime_collaborative_editor.security.JwtService;
 import astranewin.dev.realtime_collaborative_editor.user.UserDetailsImpl;
 import astranewin.dev.realtime_collaborative_editor.user.UserEntity;
@@ -15,7 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +36,9 @@ public class AuthenticationService {
     public AuthenticationResponse register(
             AuthenticationRequest request
     ) {
+        if (userRepository.existsByUsername(request.username()))
+            throw new DuplicateResourceException("Username is already taken");
+
         UserEntity build = UserEntity.builder()
                 .username(request.username())
                 .passwordHash(passwordEncoder.encode(request.password()))
@@ -46,17 +52,19 @@ public class AuthenticationService {
     public AuthenticationResponse login(
             AuthenticationRequest request
     ) {
-        UserEntity userEntity = userRepository.findByUsername(request.username())
-                .orElseThrow(() -> new NotFoundException("Username or password is incorrect"));
-
-        authenticationManager.authenticate(
+        Authentication authenticate = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                    request.username(),
-                    request.password()
+                        request.username(),
+                        request.password()
                 )
         );
 
-        return generateAuthTokens(userEntity);
+        UserDetailsImpl principal = (UserDetailsImpl) authenticate.getPrincipal();
+
+        if (principal == null)
+            throw new IllegalStateException("Provider returned an unexpected principal type");
+
+        return generateAuthTokens(principal.getUserEntity());
     }
 
     public AuthenticationResponse refresh(
@@ -84,29 +92,28 @@ public class AuthenticationService {
     }
 
     public WebSocketResponse webSocketAuth(UserDetailsImpl userDetails, Long docId) {
-        AccessType accessType = accessService
+        HasAccessToDocumentResponse accessType = accessService
                 .hasAccessToDocument(docId, userDetails.getUserEntity());
 
-        if (accessType.equals(AccessType.NONE))
-            throw new AccessDeniedException("Access denied");
+        if (accessType.getEffectiveAccess() == AccessType.NONE)
+            throw new InsufficientPermissionsException("You are not able to open the document");
 
-        String token = jwtService.generateWsToken(userDetails, docId, accessType);
+        String token = jwtService.generateWsToken(
+                userDetails, docId, accessType.getEffectiveAccess(), accessType.getExplicitAccess()
+        );
         return new WebSocketResponse(token);
     }
 
     private AuthenticationResponse generateAuthTokens(UserEntity userEntity) {
-        UserDetails userDetails = new UserDetailsImpl(userEntity);
         String refresh = refreshTokenService.create(userEntity);
-        String access = jwtService.generateAccessToken(userDetails);
-
+        String access = jwtService.generateAccessToken(new UserDetailsImpl(userEntity));
         return new AuthenticationResponse(access, refresh);
     }
 
     private AuthenticationResponse refreshAuthTokens(UserEntity userEntity, String refresh) {
-        UserDetails userDetails = new UserDetailsImpl(userEntity);
         refreshTokenService.deleteByToken(refresh);
 
-        String access = jwtService.generateAccessToken(userDetails);
+        String access = jwtService.generateAccessToken(new UserDetailsImpl(userEntity));
         String newRefresh = refreshTokenService.create(userEntity);
 
         return new AuthenticationResponse(access, newRefresh);

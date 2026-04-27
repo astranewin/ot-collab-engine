@@ -1,8 +1,8 @@
 package astranewin.dev.realtime_collaborative_editor.document.snapshot;
 
 import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.DocumentSnapshotEntity;
-import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.SnapshotListResponse;
-import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.SnapshotResponse;
+import astranewin.dev.realtime_collaborative_editor.document.snapshot.dto.SnapshotListResponse;
+import astranewin.dev.realtime_collaborative_editor.document.snapshot.dto.SnapshotResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 

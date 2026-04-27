@@ -4,11 +4,9 @@ import astranewin.dev.realtime_collaborative_editor.common.exceptions.NotFoundEx
 import astranewin.dev.realtime_collaborative_editor.document.entity.DocumentEntity;
 import astranewin.dev.realtime_collaborative_editor.document.entity.DocumentRepository;
 import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.DocumentSnapshotEntity;
-import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.SnapshotListResponse;
-import astranewin.dev.realtime_collaborative_editor.document.snapshot.domain.SnapshotResponse;
+import astranewin.dev.realtime_collaborative_editor.document.snapshot.dto.SnapshotListResponse;
+import astranewin.dev.realtime_collaborative_editor.document.snapshot.dto.SnapshotResponse;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
@@ -18,17 +16,13 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class DocumentSnapshotService {
-    private static final Logger log = LoggerFactory.getLogger(DocumentSnapshotService.class);
     private final DocumentRepository documentRepository;
     private final DocumentSnapshotRepository documentSnapshotRepository;
     private final SnapshotMapping mapping;
 
     public void initSnapshot(Long docId, LocalDateTime lastSnapshot, String content) {
         DocumentEntity byId = documentRepository.findById(docId)
-                .orElseThrow(() -> {
-                    log.error("Error occurred while creating snapshot for document: {}", docId);
-                    return new NotFoundException("Couldn't find the document");
-                });
+                .orElseThrow(() -> new NotFoundException("Couldn't find the document"));
 
         DocumentSnapshotEntity build = DocumentSnapshotEntity.builder()
                 .doc(byId)
@@ -48,16 +42,17 @@ public class DocumentSnapshotService {
     }
 
     public SnapshotResponse getSnapshotById(Long docId, Long snapshotId) {
-        DocumentSnapshotEntity snapshotEntity = documentSnapshotRepository.findByIdAndDocId(snapshotId, docId)
-                .orElseThrow(() -> new NotFoundException(String.format("Couldn't find snapshot with id - %s in doc - %s", snapshotId, docId)));
-
-        return mapping.toSnapshot(snapshotEntity);
+        DocumentSnapshotEntity snapshot = getSnapshotByIdAndDoc(snapshotId, docId);
+        return mapping.toSnapshot(snapshot);
     }
 
     public String getSnapshotContent(Long docId, Long snapshotId){
-        DocumentSnapshotEntity snapshotEntity = documentSnapshotRepository.findByIdAndDocId(snapshotId, docId)
-                .orElseThrow(() -> new NotFoundException(String.format("Couldn't find snapshot with id - %s in doc - %s", snapshotId, docId)));
+        DocumentSnapshotEntity snapshot = getSnapshotByIdAndDoc(snapshotId, docId);
+        return snapshot.getText();
+    }
 
-        return snapshotEntity.getText();
+    private DocumentSnapshotEntity getSnapshotByIdAndDoc(Long snapshotId, Long docId) {
+        return documentSnapshotRepository.findByIdAndDocId(snapshotId, docId)
+                .orElseThrow(() -> new NotFoundException("Snapshot not found"));
     }
 }
