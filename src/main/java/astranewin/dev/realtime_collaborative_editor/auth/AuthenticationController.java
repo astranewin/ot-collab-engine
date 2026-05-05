@@ -2,7 +2,6 @@ package astranewin.dev.realtime_collaborative_editor.auth;
 
 import astranewin.dev.realtime_collaborative_editor.auth.dto.*;
 import astranewin.dev.realtime_collaborative_editor.user.UserDetailsImpl;
-import astranewin.dev.realtime_collaborative_editor.user.UserEntity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;

@@ -7,8 +7,6 @@ import astranewin.dev.realtime_collaborative_editor.security.JwtService;
 import astranewin.dev.realtime_collaborative_editor.user.UserDetailsImpl;
 import astranewin.dev.realtime_collaborative_editor.user.UserEntity;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

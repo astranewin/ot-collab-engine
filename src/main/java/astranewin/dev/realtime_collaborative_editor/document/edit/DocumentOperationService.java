@@ -27,7 +27,7 @@ public class DocumentOperationService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentOperationService.class);
 
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    private final ScheduledExecutorService scheduler;
     private final Map<String, DocumentState> documents = new ConcurrentHashMap<>();
     private final DocumentRepository repository;
     private final OperationTransformer operationTransformer;
@@ -58,6 +58,7 @@ public class DocumentOperationService {
         return documents.computeIfAbsent(docId, id -> new DocumentState(getContentFromDB(parsedDocId)));
     }
 
+
     public DocumentHandleOperationResponse handle(String docId, Operation op) {
         DocumentState doc = documents.get(docId);
 
@@ -80,7 +81,6 @@ public class DocumentOperationService {
             doc.setDirty(true);
 
             if (doc.getHistory().size() > historyLimitSize) {
-                log.info("History is exceeding limit size. Clearing...");
                 int removeCount = doc.getHistory().size() - historyLimitSize;
                 doc.getHistory().subList(0, removeCount).clear();
                 doc.setHistoryOffset(doc.getHistoryOffset() + removeCount);
@@ -159,7 +159,9 @@ public class DocumentOperationService {
         int pos = Math.max(0, Math.min(content.length(), op.getPosition()));
         String text = op.getText() != null ? op.getText() : "";
 
-        return content.substring(0, pos) + text + content.substring(pos);
+        return new StringBuilder(content)
+                .insert(pos, text)
+                .toString();
     }
 
     private String applyDelete(String content, Operation op) {
@@ -170,6 +172,8 @@ public class DocumentOperationService {
 
         int end = Math.min(content.length(), pos + len);
 
-        return content.substring(0, pos) + content.substring(end);
+        return new StringBuilder(content)
+                .delete(pos, end)
+                .toString();
     }
 }

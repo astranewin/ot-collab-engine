@@ -2,16 +2,12 @@ package astranewin.dev.realtime_collaborative_editor.document.edit;
 
 import astranewin.dev.realtime_collaborative_editor.document.access.AccessType;
 import astranewin.dev.realtime_collaborative_editor.security.JwtService;
-import astranewin.dev.realtime_collaborative_editor.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 import org.springframework.util.MultiValueMap;
