@@ -12,6 +12,4 @@ public interface DocumentSnapshotRepository extends JpaRepository<DocumentSnapsh
     List<DocumentSnapshotEntity> findAllByDocId(Long docId, Pageable pageable);
 
     Optional<DocumentSnapshotEntity> findByIdAndDocId(Long snapshotId, Long docId);
-
-    Long doc(DocumentEntity doc);
 }
