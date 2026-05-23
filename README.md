@@ -95,7 +95,7 @@ Results
 | 50           | avgt | 5   | 0.174       | ± 0.012  | us/op |
 | 500          | avgt | 5   | 1.343       | ± 0.077  | us/op |
 | 5000         | avgt | 5   | 30.942      | ± 12.177 | us/op |
-| 5000         | avgt | 5   | 402.516     | ± 65.265 | us/op |
+| 50000         | avgt | 5   | 402.516     | ± 65.265 | us/op |
 
 The OT engine is exceptionally fast. Even in an extreme scenario where an operation must be transformed against a backlog of 50,000 historical operations, the logic resolves in roughly ~0.4 milliseconds. In real-world scenarios, history sizes are truncated well before reaching these limits, ensuring sub-millisecond transformation times.
 
