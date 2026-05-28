@@ -1,0 +1,29 @@
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: editor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: editorpass
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    image: collaborative-editor:1.0
+    build: .
+    container_name: springboot-app
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET=qMiN2ek0lc4gWvHc49A/MUKiB1sWAgbFs6XPa4EmwqgZZj7SVBrOjbUHl3rFWAT7qr43WnFLJtxdlHlub/6gmA==
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/editor
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=editorpass
+    depends_on:
+      - postgres-db
+
+volumes:
+  pgdata:
